@@ -35,7 +35,7 @@ const MemoryGame = () => {
     useEffect(() => {
         // Set background image for the whole page
         document.body.style.backgroundImage = "url(https://static.vecteezy.com/system/resources/thumbnails/000/544/257/small_2x/180213_08_Seamless_abstract_Numerical_number__black_and_white_01.jpg)";
-        document.body.style.backgroundSize = "cover";
+        // document.body.style.backgroundSize = "cover";
         document.body.style.backgroundPosition = "center";
         document.body.style.backgroundAttachment = "fixed";  // Optional: this makes the background fixed while scrolling
         initializeGame();
