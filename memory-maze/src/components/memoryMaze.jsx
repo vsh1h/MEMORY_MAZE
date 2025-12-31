@@ -1,145 +1,302 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
+import confetti from "canvas-confetti";
 
-const MemoryGame = () => {
-    const [gridSize, setGridSize] = useState(2);
-    const [cards, setCards] = useState([]);
+const fireConfetti = () => {
+  const end = Date.now() + 2000;
+  const colors = ["#a786ff", "#fd8bbc", "#eca184", "#f8deb1"];
+  const frame = () => {
+    if (Date.now() > end) return;
+    confetti({ particleCount: 3, angle: 60, spread: 55, origin: { x: 0 }, colors });
+    confetti({ particleCount: 3, angle: 120, spread: 55, origin: { x: 1 }, colors });
+    requestAnimationFrame(frame);
+  };
+  frame();
+};
 
-    const [flipped, setFlipped] = useState([]);
-    const [solved, setSolved] = useState([]);
-    const [disabled, setDisabled] = useState(false);
+const LEVELS = [
+  { id: 1, grid: 2, title: "Numbers", how: "Match identical numbers." },
+  { id: 2, grid: 4, title: "Roman Numerals", how: "Match numbers with Roman numerals." },
+  { id: 3, grid: 6, title: "Emotions", how: "Match emotion emojis with their names." },
+  { id: 4, grid: 8, title: "Planets", how: "Match planets and space objects." },
+  { id: 5, grid: 10, title: "Shapes", how: "Match shapes with their names." },
+];
 
-    const [won, setWon] = useState(false);
+const DATA = {
+  2: [["1","1"],["2","2"]],
+  4: [["1","I"],["2","II"],["3","III"],["4","IV"],["5","V"],["6","VI"],["7","VII"],["8","VIII"]],
+  6: [
+    ["😄","Happy"],["😢","Sad"],["😍","Love"],["😡","Angry"],
+    ["🤔","Thinking"],["😴","Sleepy"],["😎","Cool"],["🥳","Excited"],
+    ["😐","Neutral"],["😭","Crying"],["😌","Relaxed"],["😤","Frustrated"],
+    ["😜","Playful"],["😃","Joy"],["😟","Worried"],["😬","Nervous"],
+    ["😞","Down"],["😱","Fear"],
+  ],
+  8: [
+    ["☀️","Sun"], ["🌍","Earth"], ["🌕","Moon"], ["🔴","Mars"],
+    ["🟠","Jupiter"], ["🪐","Saturn"], ["🔵","Uranus"], ["🟣","Neptune"],
+    ["☄️","Comet"], ["🌠","Meteor"], ["🪨","Asteroid"], ["🚀","Rocket"],
+    ["🛰️","Satellite"], ["🌌","Galaxy"], ["⭐","Star"], ["🌋","Volcano"],
+    ["🌙","Crescent Moon"],["🛸","UFO"],
+    ["🌑","New Moon"], ["🌒","Waxing Moon"], ["🌓","Half Moon"], ["🌔","Gibbous Moon"],
+    ["🌕","Full Moon"], ["💫","Shooting Star"], ["🪐","Ringed Planet"],
+    ["🌟","Bright Star"], ["🌠","Falling Star"], ["🧭","Orbit"],
+    ["🕳","Black Hole"], ["🧊","Ice Planet"], ["🌡","Atmosphere"], ["🌀","Storm"],
+    ],
+};
 
-    const handleGridSizeChange = (e) => {
-        const size = parseInt(e.target.value);
-        if (size >= 2 && size <= 10) {
-            setGridSize(size);
-        }
-    };
+const SHAPE_BASE = [
+  ["🔺","Triangle"],["⬛","Square"],["⚪","Circle"],["⭐","Star"],
+  ["🔶","Diamond"],["⬟","Hexagon"],["⬠","Octagon"],["⬢","Polygon"],
+  ["🟥","Red Square"],["🟦","Blue Square"],["🟩","Green Square"],["🟨","Yellow Square"],
+  ["🔵","Blue Circle"],["🔴","Red Circle"],["🟢","Green Circle"],["🟡","Yellow Circle"],
+  ["🟪","Purple Square"],["🟫","Brown Square"],["⬜","White Square"],["🔲","Hollow Square"],
+  ["🔷","Blue Diamond"],["🔸","Small Diamond"],["💠","Crystal Diamond"],
+  ["➕","Plus"],["➖","Minus"],["✖️","Multiply"],["➗","Divide"],
+  ["⬆️","Up Arrow"],["⬇️","Down Arrow"],["⬅️","Left Arrow"],["➡️","Right Arrow"],
+  ["⚫","Black Circle"],["⚪️","White Circle"],
+  ["🔘","Radio Button"],["🔻","Inverted Triangle"],
+  ["💎","Gem"],["📐","Angle"],["📏","Line"],["🧩","Puzzle Shape"],
+  ["🎯","Target"],["⭕","Ring"],["🛑","Stop"],["🔳","Filled Square"],
+  ["🟠","Orange Circle"],["🔺","Solid Triangle"],
+];
 
-    const initializeGame = () => {
-        const totalCards = gridSize * gridSize;
-        const pairCount = Math.floor(totalCards / 2);
-        const numbers = [...Array(pairCount).keys()].map((n) => n + 1);
-        const shuffledCards = [...numbers, ...numbers]
-            .sort(() => Math.random() - 0.5)
-            .slice(0, totalCards)
-            .map((number, index) => ({ id: index, number }));
+const getPairs = (grid) => {
+  const needed = (grid * grid) / 2;
+  if (grid === 10) return SHAPE_BASE.slice(0, 50);
+  return DATA[grid].slice(0, needed);
+};
 
-        setCards(shuffledCards);
+const isEmoji = (v) => v.length <= 2;
+
+export default function MemoryGame() {
+  const [level, setLevel] = useState(1);
+  const [unlocked, setUnlocked] = useState(1);
+  const [cards, setCards] = useState([]);
+  const [flipped, setFlipped] = useState([]);
+  const [solved, setSolved] = useState([]);
+  const [disabled, setDisabled] = useState(false);
+  const [steps, setSteps] = useState(0);
+  const [won, setWon] = useState(false);
+  const [lost, setLost] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  const currentLevel = LEVELS[level - 1];
+  const gridSize = currentLevel.grid;
+  const maxSteps = Math.floor((gridSize * gridSize )* 1.8);
+  const boardSize = gridSize <= 6 ? 420 : gridSize === 8 ? 625 : 600;
+
+
+  const clickSound = useRef(null);
+  const wrongSound = useRef(null);
+  const winSound = useRef(null);
+
+  useEffect(() => {
+    clickSound.current = new Audio("/button-click.mp3");
+    wrongSound.current = new Audio("/wrong.mp3");
+    winSound.current = new Audio("/balloon-burst.mp3");
+  }, []);
+
+  const initGame = () => {
+    const pairs = getPairs(gridSize);
+    const deck = pairs.flatMap((p, i) => [
+      { value: p[0], pairId: i },
+      { value: p[1], pairId: i },
+    ]);
+    setCards(deck.sort(() => Math.random() - 0.5).map((c, i) => ({ ...c, id: i })));
+    setFlipped([]);
+    setSolved([]);
+    setSteps(0);
+    setWon(false);
+    setLost(false);
+    setDisabled(false);
+  };
+
+  useEffect(initGame, [level]);
+
+  const handleClick = (id) => {
+    if (disabled || flipped.includes(id) || won || lost) return;
+
+    setSteps(prev => {
+      const next = prev + 1;
+      if (next >= maxSteps) {
+        setLost(true);
+        return maxSteps;
+      }
+      return next;
+    });
+
+    if (steps >= maxSteps - 1) return;
+
+    clickSound.current?.play();
+
+    if (flipped.length === 0) {
+      setFlipped([id]);
+      return;
+    }
+
+    setDisabled(true);
+    const first = flipped[0];
+    setFlipped([first, id]);
+
+    if (cards[first].pairId === cards[id].pairId) {
+      setTimeout(() => {
+        setSolved(s => [...s, first, id]);
         setFlipped([]);
-        setSolved([]);
-        setWon(false);
-    };
+        setDisabled(false);
+      }, 350);
+    } else {
+      wrongSound.current?.play();
+      setTimeout(() => {
+        setFlipped([]);
+        setDisabled(false);
+      }, 550);
+    }
+  };
 
-    useEffect(() => {
-        document.body.style.backgroundImage = "url(https://static.vecteezy.com/system/resources/thumbnails/000/544/257/small_2x/180213_08_Seamless_abstract_Numerical_number__black_and_white_01.jpg)";
-        // document.body.style.backgroundSize = "cover";
-        document.body.style.backgroundPosition = "center";
-        document.body.style.backgroundAttachment = "fixed";  // Optional: this makes the background fixed while scrolling
-        initializeGame();
-    }, [gridSize]);
+  useEffect(() => {
+    if (lost) wrongSound.current?.play();
+  }, [lost]);
 
-    const checkMatch = (secondId) => {
-        const [firstId] = flipped;
-        if (cards[firstId].number === cards[secondId].number) {
-            setSolved([...solved, firstId, secondId]);
-            setFlipped([]);
-            setDisabled(false);
-        } else {
-            setTimeout(() => {
-                setFlipped([]);
-                setDisabled(false);
-            }, 1000);
-        }
-    };
+  useEffect(() => {
+    if (solved.length === cards.length && cards.length) {
+      winSound.current?.play();
+      fireConfetti();
+      setWon(true);
+      setUnlocked(u => Math.max(u, level + 1));
+    }
+  }, [solved]);
 
-    const handleClick = (id) => {
-        if (disabled || won) {
-            return;
-        }
+  return (
+    <div style={{ minHeight: "100vh", display: "flex", background: "#0b1220", color: "white" }}>
+      
+      {/* SIDEBAR */}
+      <div
+        style={{
+          width: sidebarOpen ? 260 : 60,
+          transition: "width 0.3s",
+          padding: sidebarOpen ? 20 : 10,
+          background: "#111827",
+        }}
+      >
+        <button
+          onClick={() => setSidebarOpen(o => !o)}
+          style={{
+            background: "#1f2933",
+            border: "none",
+            color: "white",
+            width: "100%",
+            borderRadius: 8,
+            marginBottom: 12,
+            cursor: "pointer",
+          }}
+        >
+          {sidebarOpen ? "❮❮" : "☰"}
+        </button>
 
-        if (flipped.length === 0) {
-            setFlipped([id]);
-            return;
-        }
+        {sidebarOpen && (
+          <>
+            <h3 style={{ marginBottom: 6 }}>How to Play</h3>
+            <p style={{ fontSize: "1.0rem", opacity: 0.85, marginBottom: 16 }}>
+              <strong>Level {level}:</strong> {currentLevel.title}<br />
+              {currentLevel.how}<br />
+            </p>
+          </>
+        )}
 
-        if (flipped.length === 1) {
-            setDisabled(true);
-            if (id !== flipped[0]) {
-                setFlipped([...flipped, id]);
-                checkMatch(id);
-            } else {
-                setFlipped([]);
-                setDisabled(false);
-            }
-        }
-    };
+        {sidebarOpen && LEVELS.map(l => (
+          <button
+            key={l.id}
+            disabled={l.id > unlocked}
+            onClick={() => setLevel(l.id)}
+            style={{
+              width: "100%",
+              padding: 10,
+              marginBottom: 8,
+              borderRadius: 10,
+              border: "none",
+              background: l.id === level ? "#3b82f6" : "#1f2933",
+              color: "white",
+              opacity: l.id > unlocked ? 0.4 : 1,
+              cursor: l.id > unlocked ? "not-allowed" : "pointer",
+            }}
+          >
+            Level {l.id}
+          </button>
+        ))}
+      </div>
 
-    const isFlipped = (id) => flipped.includes(id) || solved.includes(id);
-    const isSolved = (id) => solved.includes(id);
+      <div style={{ flex: 1, display: "flex", justifyContent: "center", alignItems: "center" }}>
+        
+        <div
+            style={{
+                background: "#1f2933",
+                padding: 26,
+                borderRadius: 20,
+                width: boardSize,
+                transition: "width 0.3s ease",
+            }}
+        >
 
-    useEffect(() => {
-        if (solved.length === cards.length && cards.length > 0) {
-            setWon(true);
-        }
-    }, [solved, cards]);
+          <h1 style={{ textAlign: "center" }}>Memory Maze</h1>
 
-    return (
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
-            <div style={{ backgroundColor: "grey", padding: "30px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", borderRadius: "20px" }}>
-                <h1 style={{ fontWeight: "bold", marginBottom: "5px", fontSize: "1.875rem", fontFamily: "Comic Sans MS", color: "white" }}>Memory Maze</h1>
-                {/* input */}
-                <div style={{ marginBottom: "1rem", textAlign: "center" }}>
-                    <label htmlFor="gridSize" style={{ marginRight: "0.5rem", fontFamily: "Comic Sans MS", color: "white" }}>Choose Grid Size: (MAX - 10)</label>
-                    <br></br>
-                    <input
-                        type="number"
-                        id="gridSize"
-                        min="2"
-                        max="10"
-                        value={gridSize}
-                        onChange={handleGridSizeChange}
-                        style={{ borderRadius: "10px", padding: "0.25rem 0.5rem", border: "2px solid #d1d5db", }} />
-                    <br></br>
-                </div>
-                {/* game grid */}
-                <div style={{ display: "grid", gap: "0.5rem", marginBottom: "1rem", gridTemplateColumns: `repeat(${gridSize}, minmax(0,1fr))`, width: `min(100%, ${gridSize * 5.5}rem)` }}>
-                    {cards.map((card) => {
-                        return (
-                            <div
-                                key={card.id}
-                                onClick={() => handleClick(card.id)}
-                                style={{
-                                    aspectRatio: "1/1", display: "flex", justifyContent: "center", alignItems: "center", fontSize: "1.25rem", fontWeight: "bold", borderRadius: "0.5rem", cursor: "pointer", transition: "all 0.3s ease-in-out", backgroundColor: isFlipped(card.id) ? isSolved(card.id) ? "#22c55e" : "#3b82f6" : "#d1d5db", color: isFlipped(card.id) ? "#ffffff" : "#9ca3af",
-                                }}>
-                                {isFlipped(card.id) ? card.number : " 🤔 "}
-                            </div>
-                        )
-                    })}
-                </div>
-                {/* result */}
-                {won && (
-                    <div style={{ marginTop: "1rem", fontSize: "2.25rem", fontWeight: "bold", color: "white", animation: "bounce 1s infinite" }}>
-                        You Won!
-                    </div>
-                )}
-                {/* reset / play again button */}
-                <button
-                    onClick={initializeGame}
-                    style={{
-                        marginTop: "1rem",
-                        padding: "0.5rem 1rem",
-                        backgroundColor: "#22c55e",
-                        color: "#ffffff",
-                        borderRadius: "0.25rem",
-                        transition: "background-color 0.3s ease-in-out",
-                    }}
+          <p style={{ textAlign: "center" }}>
+            Steps: {steps}/{maxSteps}
+          </p>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: `repeat(${gridSize}, 1fr)`,
+              gap: 10,
+            }}
+          >
+            {cards.map(card => {
+              const isOpen = flipped.includes(card.id);
+              const isSolvedCard = solved.includes(card.id);
+              const bg = isSolvedCard ? "#22c55e" : isOpen ? "#3b82f6" : "#374151";
+
+              return (
+                <div
+                  key={card.id}
+                  onClick={() => handleClick(card.id)}
+                  style={{
+                    aspectRatio: "1",
+                    background: bg,
+                    borderRadius: 14,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: isEmoji(card.value) ? "1.5rem" : "0.9rem",
+                    cursor: "pointer",
+                  }}
                 >
-                    {won ? "Play Again" : "Reset"}
-                </button>
-            </div>
+                  {(isOpen || isSolvedCard) && card.value}
+                </div>
+              );
+            })}
+          </div>
+
+          <button
+            onClick={initGame}
+            style={{
+              marginTop: 16,
+              width: "100%",
+              padding: 10,
+              borderRadius: 10,
+              border: "none",
+              background: "#22c55e",
+              color: "white",
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            {won || lost ? "Play Again" : "Reset"}
+          </button>
+
+          {won && <p style={{ color: "#22c55e", textAlign: "center" }}>🎉 Level Complete!</p>}
+          {lost && <p style={{ color: "#ef4444", textAlign: "center" }}>❌ Out of Steps!</p>}
         </div>
-    )
+      </div>
+    </div>
+  );
 }
-export default MemoryGame;
