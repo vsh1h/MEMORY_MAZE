@@ -1,6 +1,5 @@
 import { useEffect, useState, useRef } from "react";
 import confetti from "canvas-confetti";
-// redeploy trigger
 
 const fireConfetti = () => {
   const end = Date.now() + 2000;

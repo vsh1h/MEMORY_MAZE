@@ -1,8 +1,7 @@
 import './App.css'
-import MemoryGame from "./components/memoryMaze.jsx"
+import MemoryGame from "./components/memory-game.jsx"
 
 function App() {
-
   return (
     <MemoryGame />
   )
